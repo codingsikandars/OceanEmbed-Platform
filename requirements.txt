@@ -1,0 +1,14 @@
+# OceanEmbed Dependencies
+# SIH 26066: Satellite Embedding-Based Deep Learning Framework for Reconstruction of Subsurface Ocean Temperature
+
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.24.0
+scipy>=1.11.0
+pandas>=2.1.0
+xarray>=2023.12.0
+netCDF4>=1.6.5
+matplotlib>=3.8.0
+pyyaml>=6.0.1
+tqdm>=4.66.0
+h5py>=3.10.0

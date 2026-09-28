@@ -1,0 +1,108 @@
+# OceanEmbed Configuration
+# Smart India Hackathon (SIH) Problem Statement ID 26066
+# Satellite Embedding-Based Deep Learning Framework for Reconstruction of Subsurface Ocean Temperature
+
+domain:
+  name: "North Indian Ocean (NIO)"
+  description: "Arabian Sea, Bay of Bengal, and Equatorial Northern Indian Ocean"
+
+spatial:
+  lat_min: 5.0
+  lat_max: 30.0
+  lon_min: 45.0
+  lon_max: 105.0
+  resolution: 0.25
+  n_lat: 101 # (30.0 - 5.0) / 0.25 + 1
+  n_lon: 241 # (105.0 - 45.0) / 0.25 + 1
+
+temporal:
+  resolution: "daily"
+  time_window: 1 # Number of consecutive daily surface observation steps (1 for single snapshot)
+
+depth:
+  levels: [0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 500, 700, 1000]
+  num_levels: 15
+
+features:
+  input_variables:
+    - name: "sst"
+      source: "OSTIA (0.05° to 0.25°)"
+      unit: "degC"
+      mean: 28.5
+      std: 2.1
+    - name: "sss"
+      source: "SMAP / SMOS (0.125° to 0.25°)"
+      unit: "PSU"
+      mean: 34.5
+      std: 2.5
+    - name: "ssh"
+      source: "DUACS Altimetry (0.25°)"
+      unit: "m"
+      mean: 0.05
+      std: 0.15
+    - name: "u_curr"
+      source: "OSCAR Currents (0.25°)"
+      unit: "m/s"
+      mean: 0.02
+      std: 0.35
+    - name: "v_curr"
+      source: "OSCAR Currents (0.25°)"
+      unit: "m/s"
+      mean: -0.01
+      std: 0.30
+    - name: "u_wind"
+      source: "ASCAT / CCMP (0.25°)"
+      unit: "m/s"
+      mean: 1.5
+      std: 4.8
+    - name: "v_wind"
+      source: "ASCAT / CCMP (0.25°)"
+      unit: "m/s"
+      mean: 0.8
+      std: 4.2
+  in_channels: 7
+
+target:
+  name: "temperature"
+  source: "GLORYS12V1 Global Ocean Reanalysis"
+  unit: "degC"
+  num_levels: 15
+
+model:
+  name: "OceanEmbedNet"
+  encoder_type: "hybrid" # Options: 'hybrid' (CoordConv + Residual CNN + Window Self-Attention), 'cnn' (CoordConv ResNet), 'vit'
+  use_coordconv: true
+  coord_channels: 2 # Latitude and Longitude positional coordinates
+  base_channels: 64
+  embedding_dim: 256 # Compact 256-channel satellite embedding representation
+  decoder_type: "hierarchical_depth"
+  depth_attention: true
+  dropout: 0.1
+
+loss:
+  lambda_mse: 1.0 # Masked Mean Squared Error
+  lambda_gradient: 0.5 # Vertical Thermal Gradient (dT/dz) Loss
+  lambda_surface: 0.2 # Surface consistency loss at z=0m (T_pred[0] ~ SST)
+  lambda_stratification: 0.05 # Physical non-inversion / stability constraint
+
+training:
+  batch_size: 8
+  num_epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  optimizer: "AdamW"
+  lr_scheduler: "cosine"
+  min_lr: 0.000001
+  warmup_epochs: 3
+  gradient_clip_val: 1.0
+  early_stopping_patience: 10
+  num_workers: 0
+  pin_memory: true
+  mixed_precision: true
+  device: "auto" # 'auto', 'cuda', or 'cpu'
+
+paths:
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  checkpoint_dir: "checkpoints"
+  output_dir: "outputs"
