@@ -117,6 +117,24 @@ def compute_depth_metrics(
     }
 
 
+def _isotherm_depth(profile: np.ndarray, depths: np.ndarray, isotherm: float) -> float:
+    """Return first depth where a profile crosses an isotherm using linear interpolation."""
+    profile = np.asarray(profile, dtype=float)
+    valid = np.isfinite(profile) & np.isfinite(depths)
+    if valid.sum() < 2:
+        return np.nan
+    t = profile[valid]
+    z = depths[valid]
+    diff = t - isotherm
+    crossings = np.where(diff[:-1] * diff[1:] <= 0)[0]
+    if len(crossings) == 0:
+        return np.nan
+    k = crossings[0]
+    if t[k] == t[k + 1]:
+        return float((z[k] + z[k + 1]) / 2.0)
+    return float(z[k] + (isotherm - t[k]) * (z[k + 1] - z[k]) / (t[k + 1] - t[k]))
+
+
 def compute_thermocline_depth_error(
     pred: np.ndarray,
     target: np.ndarray,
@@ -124,44 +142,26 @@ def compute_thermocline_depth_error(
     depths: Optional[np.ndarray] = None,
     isotherm: float = 20.0
 ) -> float:
-    """
-    Computes RMSE of the 20°C Isotherm Depth (D20, in meters),
-    which is the canonical physical proxy for thermocline displacement.
-    """
-    from scipy.interpolate import interp1d
-
+    """Compute RMSE of the 20°C isotherm depth over valid ocean profiles."""
     if depths is None:
         depths = STANDARD_DEPTHS
-
     if pred.ndim == 3:
         pred = pred[np.newaxis, ...]
         target = target[np.newaxis, ...]
+    ocean_mask = mask.astype(bool)
+    if ocean_mask.ndim == 3:
+        ocean_mask = ocean_mask[0]
 
-    n_samples, _, h, w = pred.shape
-    d20_errors = []
-
-    for s in range(n_samples):
-        for i in range(h):
-            for j in range(w):
-                if not mask[i, j]:
-                    continue
-                p_prof = pred[s, :, i, j]
-                t_prof = target[s, :, i, j]
-
-                # Find depth where T crosses isotherm
-                try:
-                    f_pred = interp1d(p_prof, depths, bounds_error=False, fill_value=np.nan)
-                    f_true = interp1d(t_prof, depths, bounds_error=False, fill_value=np.nan)
-                    d_pred = f_pred(isotherm)
-                    d_true = f_true(isotherm)
-                    if not (np.isnan(d_pred) or np.isnan(d_true)):
-                        d20_errors.append(d_pred - d_true)
-                except Exception:
-                    continue
-
-    if len(d20_errors) == 0:
-        return 0.0
-    return float(np.sqrt(np.mean(np.array(d20_errors) ** 2)))
+    errors = []
+    for s in range(pred.shape[0]):
+        for i, j in zip(*np.where(ocean_mask)):
+            dp = _isotherm_depth(pred[s, :, i, j], depths, isotherm)
+            dt = _isotherm_depth(target[s, :, i, j], depths, isotherm)
+            if np.isfinite(dp) and np.isfinite(dt):
+                errors.append(dp - dt)
+    if not errors:
+        return float("nan")
+    return float(np.sqrt(np.mean(np.square(errors))))
 
 
 def compute_vertical_gradient_error(

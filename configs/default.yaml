@@ -84,6 +84,8 @@ loss:
   lambda_gradient: 0.5 # Vertical Thermal Gradient (dT/dz) Loss
   lambda_surface: 0.2 # Surface consistency loss at z=0m (T_pred[0] ~ SST)
   lambda_stratification: 0.05 # Physical non-inversion / stability constraint
+  inversion_threshold_c: 0.4 # evaluated in Celsius after denormalization
+  gradient_scale_c_per_100m: 100.0
 
 training:
   batch_size: 8
@@ -106,3 +108,7 @@ paths:
   processed_data_dir: "data/processed"
   checkpoint_dir: "checkpoints"
   output_dir: "outputs"
+data:
+  fill_missing: true
+  source_mode: "synthetic_benchmark" # synthetic_benchmark | real
+  seed: 42

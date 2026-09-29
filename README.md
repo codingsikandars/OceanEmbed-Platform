@@ -1,223 +1,697 @@
-# OceanEmbed: Satellite Embedding-Based Deep Learning Framework for Subsurface Ocean Temperature Reconstruction
+# OceanEmbed — SIH Problem Statement 26066
 
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C.svg?style=flat&logo=pytorch)](https://pytorch.org)
-[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://python.org)
-[![Smart India Hackathon](https://img.shields.io/badge/SIH%202026-Problem%20ID%2026066-orange.svg)](https://sih.gov.in)
-[![Domain](https://img.shields.io/badge/Domain-North%20Indian%20Ocean-0077be.svg)]()
-[![License](https://img.shields.io/badge/License-MIT-green.svg)]()
+**OceanEmbed** is an end-to-end PyTorch research framework for reconstructing
+daily 3-D subsurface ocean temperature from multi-modal surface observations
+over the North Indian Ocean (NIO).
 
-> **Smart India Hackathon (SIH) Problem Statement ID:** `26066`  
-> **Problem Statement Title:** OceanEmbed - Satellite Embedding-Based Deep Learning Framework for Reconstruction of Subsurface Ocean Temperature from Surface Satellite Observations  
-> **Organization:** Ministry of Earth Sciences (MoES) / Indian National Centre for Ocean Information Services (INCOIS)
+> **SIH 2026 Problem Statement:** 26066  
+> **Title:** OceanEmbed - Satellite Embedding-Based Deep Learning Framework for
+> Reconstruction of Subsurface Ocean Temperature from Surface Satellite Observations
 
 ---
 
-## 1. Executive Summary & Scientific Background
+## 1. What the problem is actually asking
 
-### The Oceanographic Challenge
-Subsurface ocean temperature is a fundamental physical variable governing ocean heat content (OHC), tropical cyclone heat potential (TCHP), stratification, thermocline displacement, and air-sea interaction. In the **North Indian Ocean (5°N to 30°N, 45°E to 105°E)**—comprising the Arabian Sea and the Bay of Bengal—subsurface thermal variability critically influences the **Indian Summer Monsoon**, extreme tropical cyclone intensification, and catastrophic marine heatwaves.
-
-However, direct vertical in-situ observations (primarily from autonomous ARGO floats, RAMA moored buoys, and shipboard CTD casts) are sparse in space and time (typically ~3° × 3° spatial spacing sampled only once every 10 days).
-
-### The Physical Principle: Surface-to-Subsurface Teleconnections
-In contrast, satellite remote sensing provides continuous, high-resolution daily observations of the sea surface. Physical ocean dynamics provide strong non-linear couplings connecting surface signatures to subsurface stratification:
-1. **Sea Surface Height (SSH) / Sea Level Anomaly (SLA):** Directly correlates with vertical thermocline displacement via baroclinic mode dynamics. Cyclonic eddies lift the cold thermocline (negative SSH anomaly), whereas anticyclonic eddies depress the warm upper layer (positive SSH anomaly).
-2. **Sea Surface Temperature (SST):** Constrains upper mixed-layer heat budget, surface boundary conditions, and upwelling signatures (e.g. Somali & Oman coastal upwelling).
-3. **Sea Surface Salinity (SSS):** Crucial in the northern Bay of Bengal where massive freshwater runoff from the Ganga-Brahmaputra river system creates strong vertical salinity stratification and shallow barrier layers, decoupling surface SST from deeper thermocline variations.
-4. **Surface Ocean Currents $(U, V)$:** Account for horizontal advective heat transport, boundary currents (East India Coastal Current, West India Coastal Current), and eddy kinetic energy.
-5. **Surface Winds $(U, V)$:** Drive Ekman transport, wind-stress curl, turbulent mixed-layer deepening, and coastal upwelling/downwelling.
-
-`OceanEmbed` solves this inverse problem by projecting multi-modal surface satellite observations into a rich **256-channel latent satellite embedding space**, which is subsequently decoded into continuous **3D subsurface temperature fields** across 15 standard vertical depths at **0.25° × 0.25° daily resolution**.
-
----
-
-## 2. System Specifications
-
-| Parameter | Specification | Details |
-| :--- | :--- | :--- |
-| **Geographic Domain** | North Indian Ocean (NIO) | Latitude: 5.0°N to 30.0°N, Longitude: 45.0°E to 105.0°E |
-| **Spatial Resolution** | 0.25° × 0.25° Grid | $101 \times 241$ spatial grid points (~28 km cell size) |
-| **Temporal Resolution** | Daily | Single-snapshot and temporal sliding window support |
-| **Vertical Levels** | 15 Standard Depths | `[0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 500, 700, 1000]` meters |
-| **Input Channels (7)** | Multi-Modal Surface Fields | SST (OSTIA), SSS (SMAP/SMOS), SSH (DUACS), Currents $(U,V)$ (OSCAR), Winds $(U,V)$ (ASCAT/CCMP) |
-| **Training Target** | GLORYS12V1 Reanalysis | 3D daily temperature reanalysis ($1/12^\circ$ interpolated to $0.25^\circ$) |
-| **Validation Dataset** | Independent In-Situ ARGO | INCOIS Live Access Server (LAS) Gridded ARGO and profile observations |
-
----
-
-## 3. End-to-End Deep Learning Architecture
-
-```mermaid
-flowchart TD
-    subgraph Inputs ["Multi-Modal Surface Satellite Inputs (7 Channels)"]
-        SST["SST (OSTIA)"]
-        SSS["SSS (SMAP/SMOS)"]
-        SSH["SSH/SLA (DUACS)"]
-        CURR["Currents U, V (OSCAR)"]
-        WIND["Winds U, V (ASCAT/CCMP)"]
-    end
-
-    subgraph CoordInjection ["Spatial Coordinate Injection"]
-        CC["CoordConv2D: Normalized (Lat, Lon) Grid (9 Channels Total)"]
-    end
-
-    subgraph Encoder ["Satellite Embedding Network (SatelliteEncoder)"]
-        STEM["Stem Conv + GroupNorm + GELU"]
-        RES1["Residual Block 1 (64 channels, Full Res: 101 x 241)"]
-        RES2["Residual Block 2 + SE Channel Attention (128 channels, H/2 x W/2)"]
-        RES3["Residual Block 3 + Swin/ViT Spatial Self-Attention (256 channels, H/4 x W/4)"]
-        EMBED["Latent Embedding Bottleneck (256 Channels)"]
-    end
-
-    subgraph Decoder ["3D Subsurface Profile Reconstruction Decoder"]
-        UP1["Upsample + Skip Fusion f2 (128 channels)"]
-        UP2["Upsample + Skip Fusion f1 (64 channels)"]
-        DATT["Vertical Depth-Wise Attention Block (15 Depth Channels)"]
-        HEAD["Subsurface Profile Head (15 Vertical Levels)"]
-    end
-
-    subgraph Target ["Physical Outputs & Loss"]
-        OUT["Reconstructed 3D Temperature: (B, 15, 101, 241)"]
-        LOSS["Physics-Informed Loss: Masked MSE + Vertical Gradient (dT/dz) + Surface Dirichlet + Stratification"]
-    end
-
-    Inputs --> CC
-    CC --> STEM
-    STEM --> RES1
-    RES1 --> RES2
-    RES2 --> RES3
-    RES3 --> EMBED
-
-    EMBED --> UP1
-    RES2 -. Skip Connection f2 .-> UP1
-    UP1 --> UP2
-    RES1 -. Skip Connection f1 .-> UP2
-    UP2 --> DATT
-    DATT --> HEAD
-    HEAD --> OUT
-    OUT --> LOSS
-```
-
-### Key Architectural Innovations
-
-1. **CoordConv Positional Injection:**
-   Physical ocean fluid dynamics are fundamentally governed by the latitude-dependent Coriolis parameter $f = 2\Omega\sin\phi$. Translation-invariant CNNs cannot inherently discern whether an eddy feature is at 6°N (near-equatorial) or 24°N (subtropical). CoordConv explicitly provides geographic coordinates to preserve geostrophic balance.
-
-2. **Squeeze-and-Excitation (SE) Dynamic Multi-Modal Attention:**
-   Dynamically recalibrates the relative weighting of input channels. In the northern Bay of Bengal, the network learns to attend heavily to SSS due to river runoff; in mesoscale eddy fields, it prioritizes SSH.
-
-3. **Spatial Window Self-Attention (Swin/ViT-inspired):**
-   Captures basin-scale teleconnections and planetary wave dynamics (westward-propagating Rossby waves and coastal Kelvin waves) across hundreds of kilometers.
-
-4. **Vertical Depth-Wise Attention:**
-   Rather than treating the 15 depth levels as independent channels, the `DepthAttentionBlock` explicitly models vertical layer coupling across the Mixed Layer (0–50m), the Thermocline (50–200m), and the Deep Ocean (200–1000m).
-
----
-
-## 4. Physics-Informed Multi-Objective Loss Formulation
-
-Naive MSE loss leads to over-smoothing, blunting the sharpness of the thermocline and introducing unphysical vertical inversions. `OceanEmbed` employs a physics-informed multi-objective loss:
-
-$$\mathcal{L}_{\text{total}} = \lambda_{\text{mse}} \mathcal{L}_{\text{mse}} + \lambda_{\text{grad}} \mathcal{L}_{\text{grad}} + \lambda_{\text{surf}} \mathcal{L}_{\text{surf}} + \lambda_{\text{strat}} \mathcal{L}_{\text{strat}}$$
-
-1. **Masked MSE ($\mathcal{L}_{\text{mse}}$):**
-   $$\mathcal{L}_{\text{mse}} = \frac{1}{|\Omega_{\text{ocean}}|} \sum_{(i,j) \in \Omega_{\text{ocean}}} \sum_{k=1}^{15} \left( T_{\text{pred}}(z_k, i, j) - T_{\text{true}}(z_k, i, j) \right)^2$$
-   Excludes all land pixels to eliminate coastal artifacts.
-
-2. **Vertical Thermal Gradient Loss ($\mathcal{L}_{\text{grad}}$):**
-   $$\mathcal{L}_{\text{grad}} = \frac{1}{|\Omega_{\text{ocean}}|} \sum_{(i,j) \in \Omega_{\text{ocean}}} \sum_{k=1}^{14} \left( \frac{T_{\text{pred}}(z_{k+1}) - T_{\text{pred}}(z_k)}{\Delta z_k} - \frac{T_{\text{true}}(z_{k+1}) - T_{\text{true}}(z_k)}{\Delta z_k} \right)^2$$
-   Enforces sharp thermocline slopes ($\partial T / \partial z$) and accurate $20^\circ\text{C}$ isotherm depth ($D_{20}$) reconstruction.
-
-3. **Surface Dirichlet Consistency ($\mathcal{L}_{\text{surf}}$):**
-   $$\mathcal{L}_{\text{surf}} = \frac{1}{|\Omega_{\text{ocean}}|} \sum_{(i,j) \in \Omega_{\text{ocean}}} \left( T_{\text{pred}}(z=0\text{m}, i, j) - \text{SST}_{\text{input}}(i, j) \right)^2$$
-   Guarantees that the surface layer prediction strictly honors satellite SST measurements.
-
-4. **Monotonic Stratification Stability Penalty ($\mathcal{L}_{\text{strat}}$):**
-   Penalizes unphysical non-monotonic inversions:
-   $$\mathcal{L}_{\text{strat}} = \frac{1}{|\Omega_{\text{ocean}}|} \sum_{(i,j) \in \Omega_{\text{ocean}}} \sum_{k=1}^{14} \left[ \max\left(0, T_{\text{pred}}(z_{k+1}) - T_{\text{pred}}(z_k) - \tau \right) \right]^2$$
-
----
-
-## 5. Repository Structure
+The inverse problem is:
 
 ```text
-OceanEmbed/
+7 surface observations
+        ↓
+satellite/ocean-state embedding
+        ↓
+nonlinear surface → subsurface mapping
+        ↓
+15-depth temperature profile
+```
+
+The model receives only surface information but is trained against a 3-D
+temperature field. This is possible because surface variables contain indirect
+signatures of subsurface structure through thermocline displacement, eddies,
+upwelling/downwelling, horizontal advection, freshwater stratification,
+wind-driven mixing and air-sea coupling.
+
+### Domain
+
+- Latitude: **5°N to 30°N**
+- Longitude: **45°E to 105°E**
+- Target grid: **0.25° × 0.25°**
+- Target temporal cadence: **daily**
+- Target vertical levels:
+
+```text
+[0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 500, 700, 1000] m
+```
+
+The resulting grid has **101 × 241 = 24,341 grid points**.
+
+---
+
+# 2. Data architecture
+
+## Surface input channels
+
+| # | Channel | Recommended product | Native product | Harmonization |
+|---|---|---|---|---|
+| 1 | SST | OSTIA | 0.05°, daily | → 0.25° |
+| 2 | SSS | CMEMS multi-observation SSS | 1/8°, daily | → 0.25° |
+| 3 | SSH/SLA | DUACS | 0.25°, daily | → target grid |
+| 4 | Current U | OSCAR L4 | 0.25°, daily | → target grid |
+| 5 | Current V | OSCAR L4 | 0.25°, daily | → target grid |
+| 6 | Wind U | CCMP V3.1 | 0.25°, 6-hourly | daily mean |
+| 7 | Wind V | CCMP V3.1 | 0.25°, 6-hourly | daily mean |
+
+### Training target
+
+**GLORYS12V1 / Global Ocean Physics Reanalysis**
+
+- Product ID: `GLOBAL_MULTIYEAR_PHY_001_030`
+- DOI: `10.48670/moi-00021`
+- Current catalogue resolution: ~0.083° × 0.083°
+- 50 vertical levels
+- Daily and monthly datasets
+- Target variable: sea-water potential temperature (`thetao`)
+- Regridded horizontally to 0.25°
+- Interpolated vertically to the 15 competition levels
+
+GLORYS is a **data-assimilative reanalysis**, not direct ground truth. Its
+documentation states that satellite SST, sea level and in-situ temperature/
+salinity observations are assimilated. This matters when designing ARGO
+validation.
+
+### Validation
+
+The intended independent observation source is **INCOIS ARGO/LAS**. For a
+strictly independent scientific experiment, use held-out ARGO profiles/floats
+or an evaluation period that is not represented in the training target
+construction.
+
+---
+
+# 3. Official data references
+
+| Dataset | Official reference |
+|---|---|
+| GLORYS12V1 | https://doi.org/10.48670/moi-00021 |
+| OSTIA | https://doi.org/10.48670/moi-00168 |
+| Multi-observation SSS | https://doi.org/10.48670/moi-00051 |
+| DUACS | https://doi.org/10.48670/moi-00145 |
+| OSCAR L4 Final V2 | https://doi.org/10.5067/OSCAR-25F20 |
+| CCMP 6-hourly V3.1 | https://doi.org/10.5067/CCMP-6HW10M-L4V31 |
+| INCOIS holdings | https://incois.gov.in/site/dataholdings.jsp |
+| INCOIS ARGO ERDDAP example | https://erddap.incois.gov.in/erddap/griddap/incois_argo_mnt_VAM.html |
+
+**Important:** the PS's source table should be treated as a recommended source
+stack. Product versions and native resolution can change. Record the exact
+product/version used in every experiment.
+
+---
+
+# 4. Repository
+
+```text
+OceanEmbed-Platform/
 ├── configs/
-│   └── default.yaml             # Domain bounds, model hyperparameters, loss weights
+│   ├── default.yaml
+│   └── real_data.yaml
 ├── data/
-│   ├── raw/                     # Raw satellite NetCDF files (OSTIA, SMAP, DUACS, etc.)
-│   └── processed/               # Preprocessed, harmonized & land-masked arrays
+│   ├── raw/
+│   └── processed/
+├── docs/
+│   ├── DATA_ACCESS.md
+│   └── MODEL_CARD.md
+├── scripts/
+│   ├── check_environment.py
+│   └── inspect_netcdf.py
 ├── src/
-│   ├── __init__.py
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── preprocess.py        # Harmonization, 0.25° regridding, NIO land mask, synthetic generator
-│   │   └── dataset.py           # PyTorch Dataset, CoordConv injection, DataLoaders
+│   │   ├── dataset.py
+│   │   ├── preprocess.py
+│   │   └── real_data.py
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── encoder.py           # Latent Satellite Embedding Network (Swin-ViT / 2D-CNN)
-│   │   ├── decoder.py           # 3D Depth Profile Reconstruction Decoder with Depth Attention
-│   │   └── oceanembed_net.py    # Complete End-to-End Model Wrapper & Embedding Extractor
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── losses.py            # Physics-informed MSE + Vertical Thermal Gradient Loss
-│   │   └── metrics.py           # Depth-wise RMSE, Pearson r, Mean Bias, MAE, D20 Error
-├── train.py                     # Clean training loop with AMP mixed precision & checkpointing
-├── evaluate.py                  # Independent ARGO Float Validation & diagnostic profile plotting
-├── requirements.txt             # PyTorch and scientific computing dependencies
-└── README.md                    # Technical documentation
+│   │   ├── encoder.py
+│   │   ├── decoder.py
+│   │   └── oceanembed_net.py
+│   └── utils/
+│       ├── losses.py
+│       └── metrics.py
+├── checkpoints/
+├── outputs/
+├── prepare_real_data.py
+├── train.py
+├── evaluate.py
+├── requirements.txt
+├── requirements-data.txt
+├── requirements-dev.txt
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-## 6. Quickstart Guide
+# 5. Model architecture
 
-### 1. Installation
-Clone the repository and install the dependencies:
+```text
+7 surface channels × T daily context
+             │
+             ├── optional latitude/longitude CoordConv
+             ↓
+     Multi-modal CNN encoder
+             │
+      Residual + SE blocks
+             │
+       Multi-scale features
+             ↓
+     Spatial self-attention
+             │
+             ↓
+   256-channel satellite embedding
+             │
+        ┌────┴────┐
+        │ skip f2 │
+        │ skip f1 │
+        └────┬────┘
+             ↓
+       Hierarchical decoder
+             │
+       Depth feature volume
+             ↓
+       Cross-depth attention
+             ↓
+     15 temperature layers
+```
+
+## Why an embedding?
+
+The central idea is not just to predict temperature directly.
+
+The encoder learns a latent representation:
+
+```text
+Z = Encoder(SST, SSS, SLA, Ucurr, Vcurr, Uwind, Vwind, coordinates)
+```
+
+The spatial embedding can later be reused for:
+
+- subsurface temperature reconstruction;
+- marine heatwave characterization;
+- eddy classification;
+- ocean-regime clustering;
+- downstream ocean prediction tasks.
+
+---
+
+# 6. Why each input is useful
+
+### SST
+
+Constrains the upper-ocean thermal state and carries signatures of mixed-layer
+heat exchange, fronts, upwelling and atmospheric forcing.
+
+### SSS
+
+Especially important in the Bay of Bengal, where freshwater input produces strong
+salinity stratification and shallow barrier layers. This can weaken the direct
+relationship between SST and deeper thermocline structure.
+
+### SSH / SLA
+
+Provides information about dynamic height and mesoscale eddies. Positive and
+negative sea-level anomalies are strongly associated with thermocline
+displacement.
+
+### Surface currents
+
+Represent horizontal advection and boundary-current/eddy dynamics.
+
+### Winds
+
+Provide information about Ekman transport, mixing, upwelling/downwelling and
+air-sea momentum exchange.
+
+The seven channels therefore encode complementary physical information rather
+than seven redundant measurements.
+
+---
+
+# 7. Physics-informed loss
+
+The implemented objective is:
+
+```text
+L =
+  λ_mse  L_masked_MSE
++ λ_grad L_vertical_gradient
++ λ_surf L_surface_consistency
++ λ_strat L_stratification
+```
+
+## Masked MSE
+
+Only ocean cells contribute to the reconstruction loss.
+
+## Vertical gradient
+
+The loss compares:
+
+```text
+dT/dz
+```
+
+between prediction and target. It is evaluated after converting predictions
+back to Celsius, so the depth spacing and inversion tolerance retain physical
+meaning.
+
+## Surface consistency
+
+The reconstructed 0 m temperature is encouraged to remain consistent with
+the observed SST.
+
+## Stratification
+
+A tolerance is used rather than forcing every profile to be perfectly
+monotonic. This is important because real upper-ocean profiles can exhibit
+weak inversions/barrier-layer effects.
+
+---
+
+# 8. Temporal windows
+
+`configs/default.yaml` contains:
+
+```yaml
+temporal:
+  time_window: 1
+```
+
+For `time_window: 3`, the dataset produces:
+
+```text
+day t-2:
+  SST SSS SLA Uc Vc Uw Vw
+day t-1:
+  SST SSS SLA Uc Vc Uw Vw
+day t:
+  SST SSS SLA Uc Vc Uw Vw
+```
+
+These are flattened into 21 feature channels plus two coordinate channels.
+
+This lets the model learn temporal evolution while retaining a standard 2-D
+convolutional backbone.
+
+---
+
+# 9. Real-data workflow
+
+## Step 1 — install
+
 ```bash
-git clone https://github.com/your-org/OceanEmbed.git
-cd OceanEmbed
+python -m venv .venv
+```
+
+Windows:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Then:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Data Harmonization & Preprocessing
-To harmonize real raw satellite NetCDF datasets or generate an immediate physically consistent North Indian Ocean benchmark dataset:
-```bash
-python -m src.data.preprocess
-```
-This generates:
-- `train_data.npz`, `val_data.npz`, `test_data.npz`
-- `ocean_land_mask.npy` (High-fidelity North Indian Ocean land mask)
-- `argo_observations.npy` (Independent ARGO float in-situ profiles)
+Optional official Copernicus data tooling:
 
-### 3. Model Training
-Train `OceanEmbed` using the default YAML configuration:
 ```bash
-python train.py --config configs/default.yaml --epochs 50 --batch_size 8
-```
-Key features:
-- Automatically utilizes CUDA GPU if available (with Automatic Mixed Precision `torch.amp`).
-- Employs AdamW optimizer + Cosine Annealing learning rate schedule.
-- Saves the best checkpoint based on validation RMSE to `checkpoints/oceanembed_best.pt`.
-
-### 4. Evaluation & In-Situ ARGO Float Validation
-Run full evaluation against test reanalysis data and independent ARGO float observations:
-```bash
-python evaluate.py --config configs/default.yaml
+pip install -r requirements-data.txt
 ```
 
-The evaluation script generates:
-1. `outputs/vertical_profiles_comparison.png`: Vertical temperature profiles comparing GLORYS target, OceanEmbed prediction, and in-situ ARGO floats across key North Indian Ocean regions.
-2. `outputs/depth_wise_skill_metrics.png`: Depth-wise RMSE, Pearson correlation ($r$), and Mean Bias Error curves from 0m down to 1000m.
-3. `outputs/horizontal_temperature_slices.png`: 2D spatial maps of target, prediction, and absolute error at 0m, 100m (thermocline), 300m, and 1000m.
-4. `outputs/evaluation_report.json`: Quantitative metrics saved as JSON.
+The Copernicus Marine Toolbox currently supports catalogue discovery, spatial/
+temporal subsetting, original-file download and lazy remote xarray access.
 
 ---
 
-## 7. Downstream Oceanographic Applications
+## Step 2 — authenticate with Copernicus Marine
 
-The compact 256-channel satellite embeddings learned by `OceanEmbed` can be extracted directly via `model.extract_embeddings(x)` and applied to:
-- **Tropical Cyclone Intensity Forecasting:** Calculating Tropical Cyclone Heat Potential ($\text{TCHP} = c_p \rho \int_{D26}^0 (T - 26)\, dz$) to predict rapid intensification in the Bay of Bengal.
-- **Subsurface Marine Heatwaves (MHWs):** Detecting subsurface thermal anomalies that persist below the mixed layer unseen by surface satellites.
-- **Ocean Data Assimilation:** Providing high-resolution 3D background priors for numerical ocean circulation models (e.g. MOM6, ROMS).
-- **Fisheries Habitat Suitability:** Mapping thermocline shoaling and upwelling zones associated with pelagic fish aggregation.
+```bash
+copernicusmarine login
+```
+
+Inspect the catalogue:
+
+```bash
+copernicusmarine describe --product-id GLOBAL_MULTIYEAR_PHY_001_030
+```
+
+Subset only the region and dates required by the experiment.
+
+---
+
+## Step 3 — download/subset the sources
+
+Place local files under:
+
+```text
+data/raw/
+```
+
+Example:
+
+```text
+data/raw/
+├── ostia.nc
+├── sss.nc
+├── duacs.nc
+├── oscar.nc
+├── ccmp.nc
+└── glorys12v1.nc
+```
+
+Do **not** commit these files to Git.
+
+---
+
+## Step 4 — inspect variables
+
+```bash
+python scripts/inspect_netcdf.py data/raw/ostia.nc
+python scripts/inspect_netcdf.py data/raw/glorys12v1.nc
+```
+
+Update `configs/real_data.yaml` if the provider uses a different variable name.
+
+---
+
+## Step 5 — harmonize
+
+```bash
+python prepare_real_data.py --manifest configs/real_data.yaml
+```
+
+The pipeline performs:
+
+```text
+raw NetCDF
+   ↓
+coordinate normalization
+   ↓
+NIO spatial subset
+   ↓
+daily temporal aggregation
+   ↓
+0.25° horizontal interpolation
+   ↓
+GLORYS vertical interpolation
+   ↓
+date alignment
+   ↓
+ocean mask
+   ↓
+chronological train / val / test split
+   ↓
+NPZ arrays
+```
+
+---
+
+# 10. Synthetic benchmark
+
+The repository contains a synthetic benchmark so the complete ML pipeline can
+be demonstrated without downloading large scientific archives.
+
+Generate it with:
+
+```bash
+python -m src.data.preprocess
+```
+
+Then train:
+
+```bash
+python train.py --config configs/default.yaml --epochs 2 --batch_size 2
+```
+
+The synthetic benchmark is for:
+
+- code testing;
+- architecture debugging;
+- presentation demonstrations;
+- smoke tests.
+
+It must **not** be reported as real oceanographic skill.
+
+---
+
+# 11. Training
+
+Basic:
+
+```bash
+python train.py
+```
+
+Override epochs:
+
+```bash
+python train.py --epochs 50
+```
+
+Override batch size:
+
+```bash
+python train.py --batch_size 4
+```
+
+Force GPU:
+
+```bash
+python train.py --device cuda
+```
+
+The trainer uses:
+
+- AdamW;
+- cosine learning-rate schedule;
+- optional CUDA AMP;
+- gradient clipping;
+- validation RMSE;
+- early stopping;
+- best/latest checkpoints;
+- training-history JSON.
+
+---
+
+# 12. Evaluation
+
+```bash
+python evaluate.py
+```
+
+The evaluation framework reports:
+
+- depth-wise RMSE;
+- Pearson correlation;
+- mean bias;
+- MAE;
+- vertical gradient error;
+- D20 error where valid;
+- horizontal temperature slices;
+- depth-wise skill plots;
+- ARGO profile comparison where supplied.
+
+---
+
+# 13. Metrics that should appear in the SIH presentation
+
+Do not present only one average RMSE.
+
+Recommended dashboard:
+
+```text
+                 Surface → Deep
+
+Depth       RMSE      Pearson r      Bias
+------------------------------------------------
+0 m         ...          ...          ...
+5 m         ...          ...          ...
+...
+1000 m      ...          ...          ...
+```
+
+Also report:
+
+### Regional
+
+- Arabian Sea
+- Bay of Bengal
+
+### Seasonal
+
+- pre-monsoon
+- southwest monsoon
+- post-monsoon
+- winter
+
+### Physical
+
+- D20 RMSE
+- mixed-layer error if a robust MLD definition is implemented
+- vertical-gradient error
+
+### Validation
+
+- held-out ARGO profiles
+- held-out time period
+- number of valid profiles
+- number of valid grid cells
+
+---
+
+# 14. Critical scientific validation issue
+
+A major point for the final SIH explanation:
+
+**GLORYS is not an observation-only truth field.**
+
+The product assimilates observations, including in-situ temperature/salinity
+profiles. Therefore:
+
+```text
+ARGO → GLORYS assimilation
+ARGO → "independent" validation
+```
+
+can create statistical dependence.
+
+A stronger evaluation protocol is:
+
+```text
+Historical surface data ───────┐
+                               ↓
+                         OceanEmbed training
+                               ↓
+                     Held-out future period
+                               ↓
+                         ARGO validation
+```
+
+and, where feasible, exclude the validation float/time subset from the target
+construction/training experiment.
+
+---
+
+# 15. What “production-grade” should mean for this project
+
+For an SIH PoC, this repository provides the engineering foundation. A true
+scientific production system should additionally implement:
+
+1. provider-specific quality flags;
+2. per-variable observation masks;
+3. uncertainty channels;
+4. robust coastal/ocean masks;
+5. data version manifests;
+6. experiment tracking;
+7. reproducible temporal holdouts;
+8. regional/seasonal stratified validation;
+9. uncertainty estimation;
+10. ensemble or probabilistic prediction;
+11. D20/MLD diagnostics;
+12. bias correction;
+13. automated data freshness checks;
+14. model monitoring;
+15. containerized deployment;
+16. automated tests and CI.
+
+---
+
+# 16. Recommended SIH architecture story
+
+For a PPT/demo, explain the system as four layers:
+
+### Layer 1 — Observation fusion
+
+```text
+OSTIA
+SMAP/SMOS
+DUACS
+OSCAR
+CCMP
+  ↓
+harmonization
+```
+
+### Layer 2 — Ocean embedding
+
+```text
+7 modalities
+  ↓
+CoordConv
+  ↓
+Residual CNN + SE
+  ↓
+attention
+  ↓
+256-D satellite embedding
+```
+
+### Layer 3 — 3-D reconstruction
+
+```text
+embedding
+  ↓
+multi-scale decoder
+  ↓
+vertical attention
+  ↓
+15-depth temperature profile
+```
+
+### Layer 4 — scientific validation
+
+```text
+GLORYS training target
+        +
+held-out ARGO observations
+        ↓
+RMSE / r / Bias / D20
+```
+
+---
+
+# 17. Existing demo artifacts
+
+The original uploaded project already contained:
+
+- trained checkpoints;
+- synthetic train/validation/test arrays;
+- training history;
+- evaluation scripts.
+
+Those artifacts are retained as a demonstration baseline. Large third-party
+scientific datasets are intentionally not included.
+
+---
+
+# 18. Citation / attribution
+
+When presenting results, cite the exact dataset versions used and include the
+official DOI/product identifier.
+
+At minimum:
+
+- Copernicus Marine GLORYS12V1;
+- Copernicus Marine OSTIA;
+- Copernicus Marine multi-observation SSS;
+- Copernicus Marine DUACS;
+- NASA PO.DAAC OSCAR;
+- NASA PO.DAAC CCMP;
+- INCOIS ARGO.
+
+---
+
+## License
+
+The repository code can be distributed under the project's chosen open-source
+license, but third-party datasets remain subject to their own provider
+licenses and citation requirements.

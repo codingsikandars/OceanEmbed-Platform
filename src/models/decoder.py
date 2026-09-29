@@ -93,11 +93,11 @@ class SubsurfaceDecoder(nn.Module):
         # Stage 1: Upsample from H/4, W/4 to H/2, W/2 and fuse skip connection f2 (128 channels)
         ch_mid = base_channels * 2 # 128
         self.upconv1 = nn.Conv2d(embedding_dim, ch_mid, kernel_size=3, padding=1)
-        self.fuse1 = ResidualBlock2d(ch_mid + 128, ch_mid)
+        self.fuse1 = ResidualBlock2d(ch_mid + ch_mid, ch_mid)
 
         # Stage 2: Upsample from H/2, W/2 to H, W and fuse skip connection f1 (64 channels)
         self.upconv2 = nn.Conv2d(ch_mid, base_channels, kernel_size=3, padding=1)
-        self.fuse2 = ResidualBlock2d(base_channels + 64, base_channels)
+        self.fuse2 = ResidualBlock2d(base_channels + base_channels, base_channels)
 
         # Stage 3: Subsurface 3D Projection
         # Generates a depth-feature volume: (B, num_depth_levels * 16, H, W)

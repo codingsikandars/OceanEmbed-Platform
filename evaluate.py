@@ -255,7 +255,7 @@ def main():
         stats = None
     else:
         print(f"[OceanEmbed] Loading checkpoint from: {ckpt_path}")
-        ckpt = torch.load(ckpt_path, map_location="cpu")
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         stats = ckpt.get("stats", None)
 
     # Load test dataset
@@ -263,9 +263,10 @@ def main():
     test_dataset = OceanDataset(
         data_path=test_path,
         use_coordconv=use_coordconv,
-        time_window=1,
+        time_window=config.get("temporal", {}).get("time_window", 1),
         normalize=True,
         stats=stats,
+        fill_missing=config.get("data", {}).get("fill_missing", True),
     )
     mask = test_dataset.land_mask
 

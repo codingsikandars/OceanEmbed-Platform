@@ -159,6 +159,7 @@ class SatelliteEncoder(nn.Module):
     ):
         super().__init__()
         self.use_coordconv = use_coordconv
+        self.base_input_channels = in_channels
         actual_in_channels = in_channels + (2 if use_coordconv else 0)
 
         # Stage 0: Stem Projection
@@ -219,7 +220,7 @@ class SatelliteEncoder(nn.Module):
             skip_features (List[torch.Tensor]): [f1: (B, 64, H, W), f2: (B, 128, H/2, W/2)]
         """
         # If coordconv is configured and not already added in x
-        if self.use_coordconv and x.shape[1] == 7:
+        if self.use_coordconv and x.shape[1] == self.base_input_channels:
             x = self.coord_layer(x)
 
         f1 = self.stem(x)         # (B, 64, H, W)

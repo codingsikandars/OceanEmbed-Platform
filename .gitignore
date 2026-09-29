@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+
+# Scientific data / artifacts
+*.nc
+*.nc4
+*.h5
+*.hdf5
+*.zarr/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/real/
+outputs/*
+checkpoints/*.pt
+checkpoints/*.pth
+!checkpoints/training_history.json
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

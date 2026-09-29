@@ -1,0 +1,65 @@
+# Real-data manifest for SIH PS 26066.
+# Paths are intentionally placeholders: raw scientific datasets are not bundled
+# with this repository. Download only the required NIO subset first.
+#
+# Variable names can be adjusted after inspecting each provider's NetCDF metadata.
+
+start: "2020-01-01"
+end: "2021-12-31"
+require_complete_days: false
+output_dir: "data/processed/real"
+
+split:
+  # Temporal split avoids random-day leakage.
+  train_fraction: 0.70
+  val_fraction: 0.15
+
+surface_sources:
+  - name: "sst"
+    path: "data/raw/ostia.nc"
+    variable: "analysed_sst"
+    kind: "surface"
+    time_aggregation: "mean"
+
+  - name: "sss"
+    path: "data/raw/sss.nc"
+    variable: "sos"
+    kind: "surface"
+    time_aggregation: "mean"
+
+  - name: "ssh"
+    path: "data/raw/duacs.nc"
+    variable: "sla"
+    kind: "surface"
+    time_aggregation: "mean"
+
+  - name: "u_curr"
+    path: "data/raw/oscar.nc"
+    variable: "u"
+    kind: "surface"
+    time_aggregation: "mean"
+
+  - name: "v_curr"
+    path: "data/raw/oscar.nc"
+    variable: "v"
+    kind: "surface"
+    time_aggregation: "mean"
+
+  - name: "u_wind"
+    path: "data/raw/ccmp.nc"
+    variable: "uwnd"
+    kind: "surface"
+    # CCMP V3.1 is 6-hourly; daily mean is performed here.
+    time_aggregation: "mean"
+
+  - name: "v_wind"
+    path: "data/raw/ccmp.nc"
+    variable: "vwnd"
+    kind: "surface"
+    time_aggregation: "mean"
+
+target_source:
+  path: "data/raw/glorys12v1.nc"
+  variable: "thetao"
+  kind: "target"
+  time_aggregation: "mean"

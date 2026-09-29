@@ -1,0 +1,4 @@
+# Optional data-access tooling
+copernicusmarine>=2.4.0
+# PO.DAAC's downloader is normally installed from its supported package/repository.
+# Install it separately according to NASA Earthdata/PO.DAAC instructions when needed.

@@ -121,7 +121,9 @@ def build_oceanembed_model(config: Dict[str, Any]) -> OceanEmbedNet:
     depth_cfg = config.get("depth", {})
     features_cfg = config.get("features", {})
 
-    in_channels = features_cfg.get("in_channels", 7)
+    base_feature_channels = features_cfg.get("in_channels", 7)
+    time_window = int(config.get("temporal", {}).get("time_window", 1))
+    in_channels = base_feature_channels * time_window
     num_depths = depth_cfg.get("num_levels", 15)
     embedding_dim = model_cfg.get("embedding_dim", 256)
     base_channels = model_cfg.get("base_channels", 64)

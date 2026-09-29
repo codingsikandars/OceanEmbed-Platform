@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 import yaml
 import numpy as np
+import random
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
@@ -23,6 +24,15 @@ from src.data.dataset import create_dataloaders
 from src.models.oceanembed_net import build_oceanembed_model
 from src.utils.losses import PhysicsInformedOceanLoss
 from src.utils.metrics import compute_depth_metrics
+
+
+def set_seed(seed: int = 42) -> None:
+    """Set reproducible RNG seeds for Python, NumPy and PyTorch."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def load_config(config_path: str = "configs/default.yaml") -> Dict[str, Any]:
@@ -56,8 +66,9 @@ def train_one_epoch(
         use_amp = scaler is not None and device.type == "cuda"
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             pred = model(x)
-            # Surface SST is channel 0 of input
-            sst_in = x[:, 0]
+            # Surface SST is the first channel of the final timestep.
+            sst_index = 7 * (getattr(criterion, "_time_window", 1) - 1)
+            sst_in = x[:, sst_index]
             loss, loss_dict = criterion(pred, y, mask, sst_input=sst_in)
 
         if use_amp:
@@ -108,7 +119,7 @@ def validate(
             mask = mask.to(device)
 
             pred = model(x)
-            sst_in = x[:, 0]
+            sst_in = x[:, dataset_ref.sst_channel_index] if hasattr(dataset_ref, "sst_channel_index") else x[:, 0]
             loss, _ = criterion(pred, y, mask, sst_input=sst_in)
 
             total_loss += loss.item()
@@ -145,6 +156,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
+    set_seed(int(config.get("data", {}).get("seed", 42)))
 
     # Overrides
     if args.epochs is not None:
@@ -186,6 +198,7 @@ def main():
         use_coordconv=use_coordconv,
         time_window=time_win,
         num_workers=num_workers,
+        fill_missing=config.get("data", {}).get("fill_missing", True),
     )
     print(f"[OceanEmbed] Loaded datasets: {len(train_loader.dataset)} train, {len(val_loader.dataset)} val")
 
@@ -204,7 +217,14 @@ def main():
         lambda_surf=loss_cfg.get("lambda_surface", 0.2),
         lambda_strat=loss_cfg.get("lambda_stratification", 0.05),
         depths=depths,
+        target_mean=stats["target_mean"],
+        target_std=stats["target_std"],
+        sst_mean=float(stats["input_mean"][0, 0, 0]),
+        sst_std=float(stats["input_std"][0, 0, 0]),
+        inversion_threshold_c=loss_cfg.get("inversion_threshold_c", 0.4),
+        gradient_scale_c_per_100m=loss_cfg.get("gradient_scale_c_per_100m", 100.0),
     ).to(device)
+    criterion._time_window = time_win
 
     # Optimizer & Scheduler
     lr = float(config["training"]["learning_rate"])
